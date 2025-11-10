@@ -12,10 +12,16 @@ from langchain.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic.v1 import BaseModel, Field
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+async def extract_urls(content: str) -> List:
+    pattern = r'\[[^\]]+\]\(([^)]+)\)'
+    urls = re.findall(pattern, content)
+    return urls
 
 # Define the output schema for response evaluation
 class EvaluationResult(BaseModel):
@@ -90,6 +96,9 @@ Specifically for code-related responses, look for:
             Evaluation results including clarity and relevance scores
         """
         logger.info(f"Evaluating response for question: {question[:50]}...")
+
+        urls = await extract_urls(str(response))
+        print("These are the extracted urls from the llm's response: ", urls)
         
         # Create and run the chain to evaluate the response
         chain = self.prompt_template | self.llm | self.parser
