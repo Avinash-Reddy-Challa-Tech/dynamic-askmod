@@ -59,9 +59,11 @@ Your task is to break down this query into {max_questions} specific sub-question
 
 Example:
 If the original query is "How does the authentication system work?", good sub-questions might be:
-- "What are the main components of the authentication system?"
-- "What is the authentication flow from login to session creation?"
-- "What security measures are implemented in the authentication system?"
+- "TRIGGER DOMAIN KNOWLEDGE AGENT: What are the main components of the authentication system?"
+- "TRIGGER DOMAIN KNOWLEDGE AGENT: What is the authentication flow from login to session creation?"
+- "TRIGGER DOMAIN KNOWLEDGE AGENT: What security measures are implemented in the authentication system?"
+
+IMPORTANT: NEED TO START THE QUERY WITH "TRIGGER DOMAIN KNOWLEDGE AGENT:" FOR EACH SUB-QUESTION.
 
 Respond with ONLY a JSON object that contains:
 1. A list of {max_questions} sub-questions

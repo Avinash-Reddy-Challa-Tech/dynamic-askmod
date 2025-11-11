@@ -8,3 +8,4 @@ pydantic>=2.4.2
 aiohttp>=3.8.6
 tenacity>=8.2.3
 google-generativeai>=0.3.0
+date-time

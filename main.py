@@ -15,6 +15,7 @@ from orchestrator import Orchestrator
 from query_decomposer import QueryDecomposer
 from enhanced_response_evaluator import EnhancedResponseEvaluator
 from response_synthesizer import ResponseSynthesizer
+# Import our updated client (we'll create symbolic link or copy it to the correct location later)
 from askmod_client import AskModClient
 
 # Set up logging
@@ -29,7 +30,7 @@ ASKMOD_ENDPOINT = os.getenv('ASKMOD_ENDPOINT', 'https://dev-proposals-ai.techo.c
 ASKMOD_COOKIE = os.getenv('ASKMOD_COOKIE', '')  # This should be set in the .env file
 ORGANIZATION_NAME = os.getenv('ORGANIZATION_NAME', 'techolution')
 TASK_ID = os.getenv('TASK_ID', '88bb18aa-2a7d-42bb-9a66-bf6282ae44a3')
-DATABASE_INDEX = os.getenv('DATABASE_INDEX', 'appmoda9c40dev')
+DATABASE_INDEX = os.getenv('DATABASE_INDEX', 'appmod2a5bd9f2dev')  # Updated to match postman
 USER_ID = os.getenv('USER_ID', '68e648e8658ff0e1799590c4')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')  # This should be set in the .env file
 
@@ -47,7 +48,7 @@ def create_orchestrator() -> Orchestrator:
         model="gemini-2.5-flash"
     )
     
-    # Create the AskMod client
+    # Create the AskMod client with updated parameters
     askmod_client = AskModClient(
         endpoint=ASKMOD_ENDPOINT,
         cookie=ASKMOD_COOKIE,
