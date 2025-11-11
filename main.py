@@ -13,7 +13,7 @@ from typing import Dict, Any
 from langchain_google_genai import ChatGoogleGenerativeAI
 from orchestrator import Orchestrator
 from query_decomposer import QueryDecomposer
-from response_evaluator import ResponseEvaluator
+from enhanced_response_evaluator import EnhancedResponseEvaluator
 from response_synthesizer import ResponseSynthesizer
 from askmod_client import AskModClient
 
@@ -28,9 +28,9 @@ load_dotenv()
 ASKMOD_ENDPOINT = os.getenv('ASKMOD_ENDPOINT', 'https://dev-proposals-ai.techo.camp/api/chat/chatResponse')
 ASKMOD_COOKIE = os.getenv('ASKMOD_COOKIE', '')  # This should be set in the .env file
 ORGANIZATION_NAME = os.getenv('ORGANIZATION_NAME', 'techolution')
-TASK_ID = os.getenv('TASK_ID', '7c377dee-a767-43bc-ac52-63b16187391c')
+TASK_ID = os.getenv('TASK_ID', '88bb18aa-2a7d-42bb-9a66-bf6282ae44a3')
 DATABASE_INDEX = os.getenv('DATABASE_INDEX', 'appmoda9c40dev')
-USER_ID = os.getenv('USER_ID', '66d977791e9c242063fd3a1e')
+USER_ID = os.getenv('USER_ID', '68e648e8658ff0e1799590c4')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')  # This should be set in the .env file
 
 def create_orchestrator() -> Orchestrator:
@@ -59,7 +59,7 @@ def create_orchestrator() -> Orchestrator:
     
     # Create the components
     decomposer = QueryDecomposer(llm=llm)
-    evaluator = ResponseEvaluator(llm=llm)
+    evaluator = EnhancedResponseEvaluator(llm=llm)
     synthesizer = ResponseSynthesizer(llm=llm)
     
     # Create and return the orchestrator

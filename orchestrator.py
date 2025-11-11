@@ -23,7 +23,8 @@ from pydantic.v1 import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from query_decomposer import QueryDecomposer
-from response_evaluator import ResponseEvaluator
+# Import the enhanced evaluator instead of the original one
+from enhanced_response_evaluator import EnhancedResponseEvaluator
 from response_synthesizer import ResponseSynthesizer
 from askmod_client import AskModClient
 
@@ -36,7 +37,7 @@ class Orchestrator:
     Orchestrates the process of breaking down queries, getting responses, and synthesizing a final answer.
     """
     def __init__(self, askmod_client: AskModClient, decomposer: QueryDecomposer,
-                 evaluator: ResponseEvaluator, synthesizer: ResponseSynthesizer,
+                 evaluator: EnhancedResponseEvaluator, synthesizer: ResponseSynthesizer,
                  llm: Optional[ChatGoogleGenerativeAI] = None, max_iterations: int = 2):
         """
         Initialize the Orchestrator.
@@ -44,7 +45,7 @@ class Orchestrator:
         Args:
             askmod_client: Client for interacting with AskMod API
             decomposer: Component for breaking down queries into sub-questions
-            evaluator: Component for evaluating response quality
+            evaluator: Enhanced evaluator for response quality
             synthesizer: Component for synthesizing responses into a final answer
             llm: Language model for generating questions (if None, a default model is used)
             max_iterations: Maximum number of iterations for resolving ambiguities
@@ -80,23 +81,29 @@ class Orchestrator:
             # Step 2: Process sub-questions in parallel
             responses = await self._process_sub_questions(sub_questions)
             
-            # Step 3: Evaluate responses for quality and clarity
-            evaluation_results = await self._evaluate_responses(sub_questions, responses)
+            # Step 3: Evaluate responses for quality and clarity using enhanced evaluator
+            evaluation_results = await self._evaluate_responses(user_query, sub_questions, responses)
             
-            # Add the current Q&A pairs to our collection
+            # Add the current Q&A pairs to our collection with enhanced evaluation metrics
             for q, r, eval_result in zip(sub_questions, responses, evaluation_results):
-                all_qa_pairs.append({
+                # Extract metrics from the enhanced evaluation
+                qa_pair = {
                     "question": q,
                     "answer": r,
-                    "clarity_score": eval_result.get("clarity_score", 0),
-                    "relevance_score": eval_result.get("relevance_score", 0),
-                    "is_clear": eval_result.get("is_clear", False)
-                })
+                    # Map enhanced evaluator metrics to the format expected by existing code
+                    "clarity_score": eval_result.get("combined_score", 0),
+                    "relevance_score": eval_result.get("statistical_metrics", {}).get("query_term_overlap", 0),
+                    "is_clear": not eval_result.get("is_ambiguous", True),
+                    # Store additional metrics that might be useful
+                    "code_citations": eval_result.get("statistical_metrics", {}).get("code_citations", 0),
+                    "evaluation": eval_result  # Store full evaluation for reference
+                }
+                all_qa_pairs.append(qa_pair)
             
-            # Step 4: Identify any responses that need clarification
+            # Step 4: Identify any responses that need clarification using enhanced criteria
             unclear_responses = [(q, r, e) for q, r, e in 
                                zip(sub_questions, responses, evaluation_results) 
-                               if not e.get("is_clear", False)]
+                               if e.get("is_ambiguous", True)]
             
             if not unclear_responses:
                 # All responses are clear, break the loop
@@ -104,8 +111,9 @@ class Orchestrator:
                 break
                 
             # Step 5: Generate follow-up questions for unclear responses
+            # Use the enhanced evaluator's follow-up questions if available
             logger.info(f"Found {len(unclear_responses)} unclear responses. Generating follow-up questions.")
-            sub_questions = await self._generate_followup_questions(unclear_responses)
+            sub_questions = await self._generate_followup_questions(unclear_responses, user_query)
             
             if not sub_questions:
                 # No follow-up questions could be generated
@@ -149,26 +157,52 @@ class Orchestrator:
                 
         return processed_responses
     
-    async def _evaluate_responses(self, questions: List[str], responses: List[str]) -> List[Dict[str, Any]]:
+    async def _evaluate_responses(self, original_query: str, questions: List[str], 
+                                 responses: List[str]) -> List[Dict[str, Any]]:
         """
-        Evaluate the quality of responses.
+        Evaluate the quality of responses using the enhanced evaluator.
         
         Args:
-            questions: The questions that were asked
+            original_query: The original user query
+            questions: The sub-questions that were asked
             responses: The responses received from AskMod
             
         Returns:
-            List of evaluation results for each response
+            List of enhanced evaluation results for each response
         """
-        tasks = [self.evaluator.evaluate(q, r) for q, r in zip(questions, responses)]
-        return await asyncio.gather(*tasks)
+        evaluation_results = []
+        
+        for question, response in zip(questions, responses):
+            try:
+                # Use the enhanced evaluator which requires all three parameters
+                result = await self.evaluator.evaluate_response(
+                    response_text=response,
+                    original_query=original_query,
+                    sub_question=question
+                )
+                evaluation_results.append(result)
+            except Exception as e:
+                logger.error(f"Error evaluating response for question '{question}': {str(e)}")
+                # Create a fallback evaluation result
+                evaluation_results.append({
+                    "combined_score": 0.5,
+                    "is_ambiguous": True,
+                    "issues": [f"Evaluation error: {str(e)}"],
+                    "follow_up_questions": [],
+                    "confidence": 0.0,
+                    "statistical_metrics": {"query_term_overlap": 0.5}
+                })
+        
+        return evaluation_results
     
-    async def _generate_followup_questions(self, unclear_responses: List[Tuple[str, str, Dict[str, Any]]]) -> List[str]:
+    async def _generate_followup_questions(self, unclear_responses: List[Tuple[str, str, Dict[str, Any]]], 
+                                         original_query: str) -> List[str]:
         """
         Generate follow-up questions for unclear responses.
         
         Args:
             unclear_responses: List of tuples containing (question, response, evaluation)
+            original_query: The original user query
             
         Returns:
             List of follow-up questions
@@ -176,26 +210,36 @@ class Orchestrator:
         follow_up_questions = []
         
         for question, response, evaluation in unclear_responses:
+            # First, check if the enhanced evaluator provided follow-up questions directly
+            if "follow_up_questions" in evaluation and evaluation["follow_up_questions"]:
+                # Use pre-generated questions from enhanced evaluator
+                follow_up_questions.extend(evaluation["follow_up_questions"][:2])  # Limit to 2 per response
+                logger.info(f"Using pre-generated follow-up questions from enhanced evaluator for: {question}")
+                continue
+                
+            # Fall back to original approach if no pre-generated questions
             issues = evaluation.get("issues", [])
             issue_str = "; ".join(issues)
             
             # Create a prompt for generating a follow-up question
             prompt = PromptTemplate(
                 template="""Based on the following:
-- Original Question: {question}
+- Original User Query: {original_query}
+- Specific Question: {question}
 - Response: {response}
 - Issues: {issues}
 
 Generate a more specific follow-up question that would help clarify the ambiguities or address the issues identified.
-The follow-up question should be focused, precise, and directly related to the original question but designed to elicit a clearer response.
+The follow-up question should be focused, precise, and directly related to resolving the issues in the context of the original query.
 
 Follow-up question:""",
-                input_variables=["question", "response", "issues"]
+                input_variables=["original_query", "question", "response", "issues"]
             )
             
             # Generate the follow-up question
             chain = prompt | self.llm
             follow_up = await chain.ainvoke({
+                "original_query": original_query,
                 "question": question,
                 "response": response,
                 "issues": issue_str
