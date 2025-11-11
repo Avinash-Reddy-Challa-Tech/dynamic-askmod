@@ -5,14 +5,16 @@ This module implements an intelligent orchestrator that:
 1. Takes a user query
 2. Generates more targeted sub-questions
 3. Sends these sub-questions to AskMod in parallel
-4. Evaluates the responses for quality and clarity
-5. Generates follow-up questions if needed
-6. Synthesizes all responses into a comprehensive answer
+4. Enhances responses with actual code from citation links
+5. Evaluates the responses for quality and clarity
+6. Generates follow-up questions if needed
+7. Synthesizes all responses into a comprehensive answer
 """
 
 import asyncio
 import json
 import logging
+import os
 from typing import List, Dict, Any, Optional, Tuple
 
 import aiohttp
@@ -23,10 +25,10 @@ from pydantic.v1 import BaseModel, Field
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from query_decomposer import QueryDecomposer
-# Import the enhanced evaluator instead of the original one
 from enhanced_response_evaluator import EnhancedResponseEvaluator
 from response_synthesizer import ResponseSynthesizer
 from askmod_client import AskModClient
+from code_extractor import CodeExtractor  
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -38,7 +40,8 @@ class Orchestrator:
     """
     def __init__(self, askmod_client: AskModClient, decomposer: QueryDecomposer,
                  evaluator: EnhancedResponseEvaluator, synthesizer: ResponseSynthesizer,
-                 llm: Optional[ChatGoogleGenerativeAI] = None, max_iterations: int = 2):
+                 llm: Optional[ChatGoogleGenerativeAI] = None, max_iterations: int = 2,
+                 code_extractor: Optional[CodeExtractor] = None):
         """
         Initialize the Orchestrator.
         
@@ -49,6 +52,7 @@ class Orchestrator:
             synthesizer: Component for synthesizing responses into a final answer
             llm: Language model for generating questions (if None, a default model is used)
             max_iterations: Maximum number of iterations for resolving ambiguities
+            code_extractor: Component for extracting code from citation links (if None, a default is created)
         """
         self.askmod_client = askmod_client
         self.decomposer = decomposer
@@ -56,6 +60,10 @@ class Orchestrator:
         self.synthesizer = synthesizer
         self.llm = llm or ChatGoogleGenerativeAI(temperature=0.1)
         self.max_iterations = max_iterations
+        self.code_extractor = code_extractor or CodeExtractor()
+        
+        # Create a directory for storing responses
+        os.makedirs("responses", exist_ok=True)
         
     async def process_query(self, user_query: str) -> Dict[str, Any]:
         """
@@ -81,11 +89,34 @@ class Orchestrator:
             # Step 2: Process sub-questions in parallel
             responses = await self._process_sub_questions(sub_questions)
             
+            # Step 2.5 (NEW): Enhance responses with code from citation links
+            enhanced_responses = []
+            for i, response in enumerate(responses):
+                # Skip enhancement for error responses or None responses
+                if response is None or (isinstance(response, str) and response.startswith("Error:")):
+                    enhanced_responses.append(response)
+                    continue
+                
+                try:
+                    # Save original response to a file for reference
+                    with open(f"responses/original_response_{i}_{iteration}.txt", "w", encoding="utf-8") as f:
+                        f.write(response)
+                    
+                    # Enhance the response with code
+                    enhanced_response = await self.code_extractor.enhance_response_with_code(response)
+                    
+                    enhanced_responses.append(enhanced_response)
+                    
+                except Exception as e:
+                    logger.error(f"Error enhancing response {i}: {str(e)}", exc_info=True)
+                    # Fall back to original response
+                    enhanced_responses.append(response)
+            
             # Step 3: Evaluate responses for quality and clarity using enhanced evaluator
-            evaluation_results = await self._evaluate_responses(user_query, sub_questions, responses)
+            evaluation_results = await self._evaluate_responses(user_query, sub_questions, enhanced_responses)
             
             # Add the current Q&A pairs to our collection with enhanced evaluation metrics
-            for q, r, eval_result in zip(sub_questions, responses, evaluation_results):
+            for q, r, eval_result in zip(sub_questions, enhanced_responses, evaluation_results):
                 # Extract metrics from the enhanced evaluation
                 qa_pair = {
                     "question": q,
@@ -102,7 +133,7 @@ class Orchestrator:
             
             # Step 4: Identify any responses that need clarification using enhanced criteria
             unclear_responses = [(q, r, e) for q, r, e in 
-                               zip(sub_questions, responses, evaluation_results) 
+                               zip(sub_questions, enhanced_responses, evaluation_results) 
                                if e.get("is_ambiguous", True)]
             
             if not unclear_responses:
@@ -126,6 +157,10 @@ class Orchestrator:
         # Step 6: Synthesize a final answer from all collected Q&A pairs
         final_answer = await self.synthesizer.synthesize(user_query, all_qa_pairs)
         logger.info("Final answer synthesized successfully")
+        
+        # Save the final answer to a file
+        with open("responses/final_answer.txt", "w", encoding="utf-8") as f:
+            f.write(final_answer)
         
         return {
             "result": {
