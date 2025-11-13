@@ -396,7 +396,117 @@ Respond with ONLY a JSON object in the following format:
         except Exception as e:
             logger.error(f"Error getting file content for {file_path}: {str(e)}", exc_info=True)
             return f"// Error fetching file content: {str(e)}"
-    
+    async def _generate_and_process_questions(self, original_query: str, rag_context: str) -> Tuple[List[str], List[str], List[Dict[str, Any]]]:
+        """
+        Always generate 3 targeted questions based on RAG context and process them.
+        This ensures we always have 3 questions regardless of the orchestrator's decision.
+        
+        Args:
+            original_query: The original user query
+            rag_context: RAG context information gathered initially
+            
+        Returns:
+            Tuple of (questions, responses, evaluation_results)
+        """
+        logger.info("Generating 3 targeted questions based on original query and RAG context")
+        
+        # Create a prompt for generating questions
+        prompt_template = """You are an expert at generating targeted questions about code and software systems.
+
+    Original User Query: {original_query}
+
+    Context Information from RAG:
+    {rag_context}
+
+    Based on this information, generate 3 specific questions that will help gather detailed information to answer the original query.
+    The questions should:
+    1. Target different aspects of the original query
+    2. Be specific about code components, functions, or structures mentioned in the context
+    3. Help fill gaps in the RAG context
+    4. Use technical terminology appropriate to the codebase
+    5. Lead to concrete, factual answers about the code's functionality
+
+    Generate ONLY the list of 3 questions, each prefixed with "TRIGGER DOMAIN KNOWLEDGE AGENT:", as follows:
+
+    TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 1]
+    TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 2]
+    TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 3]"""
+        
+        # Format the prompt with the variables
+        prompt = prompt_template.format(
+            original_query=original_query,
+            rag_context=rag_context[:4000]  # Limit context length
+        )
+        
+        try:
+            # Call the LLM directly with the formatted prompt
+            response = await self.llm.ainvoke(prompt)
+            
+            # Extract the text from the response
+            if hasattr(response, 'content'):
+                questions_text = response.content
+            else:
+                questions_text = str(response)
+                
+            # Extract questions from the response
+            questions = []
+            for line in questions_text.strip().split('\n'):
+                line = line.strip()
+                if line.startswith("TRIGGER DOMAIN KNOWLEDGE AGENT:"):
+                    question = line[len("TRIGGER DOMAIN KNOWLEDGE AGENT:"):].strip()
+                    questions.append(f"TRIGGER DOMAIN KNOWLEDGE AGENT: {question}")
+            
+            # If we couldn't extract questions properly, try a fallback approach
+            if not questions or len(questions) < 3:
+                # Just split by line and take up to 3 non-empty lines
+                questions = [line.strip() for line in questions_text.split('\n') 
+                            if line.strip() and not line.strip().startswith('#')]
+                questions = [f"TRIGGER DOMAIN KNOWLEDGE AGENT: {q}" if not q.startswith("TRIGGER DOMAIN KNOWLEDGE AGENT:") else q 
+                            for q in questions[:3]]
+                
+                # If still not enough questions, add generic ones
+                while len(questions) < 3:
+                    questions.append(f"TRIGGER DOMAIN KNOWLEDGE AGENT: What are the key functions and methods related to {original_query}?")
+            
+            # Ensure we have exactly 3 questions
+            questions = questions[:3]
+            logger.info(f"Generated {len(questions)} questions based on RAG context")
+            
+            # For each question, append the RAG context for better answering
+            enhanced_questions = []
+            for question in questions:
+                # Create an enhanced question with the RAG context
+                enhanced_question = f"{question}\n\nContext Information:\n{rag_context[:2000]}"
+                enhanced_questions.append(enhanced_question)
+            
+            # Process the questions in parallel using the enhanced versions
+            responses = await self._process_sub_questions(enhanced_questions)
+            
+            # Evaluate the responses (but use the original questions for evaluation)
+            evaluation_results = await self._evaluate_responses(original_query, questions, responses)
+            
+            return questions, responses, evaluation_results
+            
+        except Exception as e:
+            logger.error(f"Error generating questions: {str(e)}", exc_info=True)
+            # Fall back to basic questions
+            fallback_questions = [
+                f"TRIGGER DOMAIN KNOWLEDGE AGENT: What are the main components involved in {original_query}?",
+                f"TRIGGER DOMAIN KNOWLEDGE AGENT: How is the functionality of {original_query} implemented in the code?",
+                f"TRIGGER DOMAIN KNOWLEDGE AGENT: What are the key interactions and dependencies for {original_query}?"
+            ]
+            
+            # Create enhanced questions with RAG context
+            enhanced_fallback = []
+            for question in fallback_questions:
+                enhanced = f"{question}\n\nContext Information:\n{rag_context[:2000]}"
+                enhanced_fallback.append(enhanced)
+            
+            # Process and evaluate the fallback questions
+            responses = await self._process_sub_questions(enhanced_fallback)
+            evaluation_results = await self._evaluate_responses(original_query, fallback_questions, responses)
+            
+            return fallback_questions, responses, evaluation_results
     async def _generate_questions_from_rag(self, rag_context: str, original_query: str) -> List[str]:
         """
         Generate questions based on RAG context.
@@ -499,14 +609,33 @@ TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 3]"""
         
         logger.info(f"Received RAG context (length: {len(str(rag_context))})")
         
+        # Step 2: Always generate and process 3 initial questions with RAG context
+        questions, responses, evaluation_results = await self._generate_and_process_questions(user_query, rag_context)
+        
+        logger.info(f"Processed initial {len(questions)} questions")
+        
         # Initialize containers for our process
         all_qa_pairs = []
         retrieved_code = {}
         fetched_citations = set()
         iteration = 0
         
+        # Add the initial Q&A pairs to our collection
+        for q, r, eval_result in zip(questions, responses, evaluation_results):
+            qa_pair = {
+                "question": q,
+                "answer": r,
+                "clarity_score": eval_result.get("combined_score", 0),
+                "relevance_score": eval_result.get("statistical_metrics", {}).get("query_term_overlap", 0),
+                "is_clear": not eval_result.get("is_ambiguous", True),
+                "code_citations": eval_result.get("statistical_metrics", {}).get("code_citations", 0),
+                "evaluation": eval_result
+            }
+            all_qa_pairs.append(qa_pair)
+        
+        # Iterative process for further refinement
         while iteration < self.max_iterations:
-            # Step 2: Make orchestrator decision
+            # Make orchestrator decision based on current information
             decision = await self._make_orchestrator_decision(
                 original_query=user_query,
                 context_information=rag_context,
@@ -518,7 +647,7 @@ TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 3]"""
             logger.info(f"Iteration {iteration} - Decision: {decision.decision}")
             logger.info(f"Reason: {decision.reason}")
             
-            # Step 3: Execute the decision
+            # Execute the decision
             if decision.decision == "fetch_code" and decision.citations_to_fetch:
                 # Filter out citations we've already fetched
                 new_citations = [c for c in decision.citations_to_fetch if c not in fetched_citations]
@@ -531,43 +660,19 @@ TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 3]"""
                 else:
                     logger.info("No new citations to fetch")
                 
-            elif decision.decision == "generate_questions":
-                # Generate questions based on RAG context
-                if decision.generate_questions_from_rag:
-                    logger.info("Generating questions from RAG context")
-                    sub_questions = await self._generate_questions_from_rag(rag_context, user_query)
-                else:
-                    logger.info("Decomposing query into sub-questions")
-                    sub_questions = await self.decomposer.generate_sub_questions(user_query)
-                
-                logger.info(f"Generated {len(sub_questions)} questions")
-                
-                # Process the sub-questions in parallel
-                responses = await self._process_sub_questions(sub_questions)
-                
-                # Evaluate the responses
-                evaluation_results = await self._evaluate_responses(user_query, sub_questions, responses)
-                
-                # Add the Q&A pairs to our collection
-                for q, r, eval_result in zip(sub_questions, responses, evaluation_results):
-                    qa_pair = {
-                        "question": q,
-                        "answer": r,
-                        "clarity_score": eval_result.get("combined_score", 0),
-                        "relevance_score": eval_result.get("statistical_metrics", {}).get("query_term_overlap", 0),
-                        "is_clear": not eval_result.get("is_ambiguous", True),
-                        "code_citations": eval_result.get("statistical_metrics", {}).get("code_citations", 0),
-                        "evaluation": eval_result
-                    }
-                    all_qa_pairs.append(qa_pair)
-                
             elif decision.decision == "follow_up" and decision.follow_up_questions:
                 logger.info(f"Processing {len(decision.follow_up_questions)} follow-up questions")
                 
-                # Process the follow-up questions
-                responses = await self._process_sub_questions(decision.follow_up_questions)
+                # Add RAG context to follow-up questions
+                enhanced_follow_up = []
+                for question in decision.follow_up_questions:
+                    enhanced = f"{question}\n\nContext Information:\n{rag_context}"
+                    enhanced_follow_up.append(enhanced)
                 
-                # Evaluate the responses
+                # Process the follow-up questions
+                responses = await self._process_sub_questions(enhanced_follow_up)
+                
+                # Evaluate the responses (using original questions for evaluation)
                 evaluation_results = await self._evaluate_responses(
                     user_query, 
                     decision.follow_up_questions, 
@@ -587,7 +692,7 @@ TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 3]"""
                     }
                     all_qa_pairs.append(qa_pair)
             
-            # Step 4: Check if we can synthesize a final answer
+            # Check if we can synthesize a final answer
             if decision.is_complete or decision.decision == "synthesize":
                 logger.info("Orchestrator has determined we have enough information to synthesize a final answer")
                 break
@@ -601,7 +706,7 @@ TRIGGER DOMAIN KNOWLEDGE AGENT: [Question 3]"""
                 logger.info(f"Reached maximum iterations ({self.max_iterations}), proceeding to synthesis")
                 break
         
-        # Step 5: Synthesize a final answer from all collected Q&A pairs and RAG context
+        # Synthesize a final answer from all collected Q&A pairs and RAG context
         logger.info(f"Synthesizing final answer from {len(all_qa_pairs)} Q&A pairs and RAG context")
         
         # Enhance the QA pairs with RAG context

@@ -384,7 +384,7 @@ class EnhancedResponseEvaluator:
         Returns:
             Dictionary with evaluation results
         """
-        logger.info(f"Evaluating response for sub-question: {sub_question}")
+        logger.info(f"Evaluating response for question: {sub_question[:100]}...")
         
         # First do a statistical evaluation
         statistical_metrics = self._evaluate_response_statistically(response_text, original_query)
