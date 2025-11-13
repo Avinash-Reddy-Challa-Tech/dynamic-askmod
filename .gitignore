@@ -2,3 +2,6 @@ creds.json
 .env
 __pycache__/
 responses/
+code_citations/
+decisions/
+rag_context/

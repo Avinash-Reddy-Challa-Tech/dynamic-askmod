@@ -142,7 +142,7 @@ class AskModClient:
             The answer from AskMod
         """
         payload = self._prepare_payload(query)
-        logger.info(f"Sending query to AskMod: {query[:50]}...")
+        logger.info(f"Sending query to AskMod: {query}")
         
         # Log the full payload for debugging
         logger.debug(f"Full payload: {json.dumps(payload, indent=2)}")

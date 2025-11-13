@@ -139,7 +139,7 @@ class EnhancedResponseEvaluator:
         file_refs = [p[0] for p in file_refs]  # Extract just the path
         
         all_paths = markdown_paths + angle_paths + file_refs
-        logger.debug(f"Extracted {len(all_paths)} code file paths: {all_paths[:5]}" + ("..." if len(all_paths) > 5 else ""))
+        logger.debug(f"Extracted {len(all_paths)} code file paths: {all_paths}" + ("..." if len(all_paths) > 5 else ""))
         return all_paths
     
     def _check_section_formatting(self, response_text: str) -> bool:
@@ -384,7 +384,7 @@ class EnhancedResponseEvaluator:
         Returns:
             Dictionary with evaluation results
         """
-        logger.info(f"Evaluating response for sub-question: {sub_question[:50]}...")
+        logger.info(f"Evaluating response for sub-question: {sub_question}")
         
         # First do a statistical evaluation
         statistical_metrics = self._evaluate_response_statistically(response_text, original_query)

@@ -78,7 +78,7 @@ async def process_query(
     Returns:
         The synthesized answer
     """
-    logger.info(f"Received query request: {request.query[:50]}...")
+    logger.info(f"Received query request: {request.query}")
     
     try:
         # Override environment variables with request parameters if provided

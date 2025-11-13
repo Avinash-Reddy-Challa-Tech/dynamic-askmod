@@ -11,12 +11,13 @@ from dotenv import load_dotenv
 from typing import Dict, Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from orchestrator import Orchestrator
+from orchestrator import IntelligentOrchestrator
 from query_decomposer import QueryDecomposer
 from enhanced_response_evaluator import EnhancedResponseEvaluator
 from response_synthesizer import ResponseSynthesizer
-# Import our updated client (we'll create symbolic link or copy it to the correct location later)
 from askmod_client import AskModClient
+# from appmod_rag_tool_integration import AppModRagToolIntegration
+from code_extractor import CodeExtractor
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -34,12 +35,12 @@ DATABASE_INDEX = os.getenv('DATABASE_INDEX', 'appmod2a5bd9f2dev')  # Updated to 
 USER_ID = os.getenv('USER_ID', '68e648e8658ff0e1799590c4')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')  # This should be set in the .env file
 
-def create_orchestrator() -> Orchestrator:
+def create_orchestrator() -> IntelligentOrchestrator:
     """
     Create and configure the orchestrator with all its components.
     
     Returns:
-        Configured Orchestrator instance
+        Configured IntelligentOrchestrator instance
     """
     # Create the language model
     llm = ChatGoogleGenerativeAI(
@@ -63,13 +64,23 @@ def create_orchestrator() -> Orchestrator:
     evaluator = EnhancedResponseEvaluator(llm=llm)
     synthesizer = ResponseSynthesizer(llm=llm)
     
+    # Optional: Create an AppModRagToolIntegration instance if you have the tool available
+    # Uncomment and modify this code if you want to use the AppModRagTool
+    # from your_appmod_rag_tool_module import AppModRagTool
+    # appmod_rag_tool = AppModRagTool()
+    # appmod_rag_tool.setup(...)
+    # rag_tool_integration = AppModRagToolIntegration(appmod_rag_tool)
+    
     # Create and return the orchestrator
-    return Orchestrator(
+    # If you have the AppModRagTool, pass rag_tool_integration as appmod_rag_tool
+    return IntelligentOrchestrator(
         askmod_client=askmod_client,
         decomposer=decomposer,
         evaluator=evaluator,
         synthesizer=synthesizer,
-        llm=llm
+        appmod_rag_tool=None,  # Replace with rag_tool_integration if available
+        llm=llm,
+        code_extractor=CodeExtractor()
     )
 
 async def process_query(query: str) -> Dict[str, Any]:
@@ -83,7 +94,13 @@ async def process_query(query: str) -> Dict[str, Any]:
         Dict containing the final answer
     """
     orchestrator = create_orchestrator()
-    return await orchestrator.process_query(query)
+    # Pass the required parameters from environment variables
+    return await orchestrator.process_query(
+        user_query=query, 
+        task_id=TASK_ID, 
+        user_id=USER_ID, 
+        database_index=DATABASE_INDEX
+    )
 
 async def main():
     """

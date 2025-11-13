@@ -343,7 +343,7 @@ class CodeExtractor:
                 async with session.get(api_url, headers=headers) as response:
                     if response.status != 200:
                         error_text = await response.text()
-                        logger.error(f"Error fetching code: {response.status} - {error_text[:200]}...")
+                        logger.error(f"Error fetching code: {response.status} - {error_text}")
                         return {
                             "display_text": display_text,
                             "url": url,
