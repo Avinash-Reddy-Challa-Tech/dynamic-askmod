@@ -5,3 +5,5 @@ responses/
 code_citations/
 decisions/
 rag_context/
+.appmodconfig
+implementation_guide.md

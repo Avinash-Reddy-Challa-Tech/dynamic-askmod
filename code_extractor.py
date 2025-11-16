@@ -112,6 +112,7 @@ class CodeExtractor:
                 if "file_path" in query_params and query_params["file_path"]:
                     # URL decode the file path
                     file_path = urllib.parse.unquote(query_params["file_path"][0])
+                    file_path = file_path.split("?")[0]  # Remove any query parameters
                     return file_path
             except Exception as e:
                 logger.error(f"Error extracting file path from URL: {str(e)}")
