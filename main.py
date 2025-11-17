@@ -1,5 +1,5 @@
 """
-Main module for AskMod Orchestrator with compatibility fixes
+Main module for AskMod Orchestrator with AppMod RAG Tool support
 """
 
 import os
@@ -14,6 +14,7 @@ from enhanced_response_evaluator import EnhancedResponseEvaluator
 from response_synthesizer import ResponseSynthesizer
 from askmod_client import AskModClient
 from code_extractor import CodeExtractor
+# from appmod_rag_tool import AppModRagTool
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -49,11 +50,10 @@ def create_orchestrator() -> IntelligentOrchestrator:
         model="gemini-2.5-flash"
     )
     
-    # Create the AskMod client without the problematic parameter
+    # Create the AskMod client
     askmod_client = AskModClient(
         endpoint=ASKMOD_ENDPOINT,
         cookie=ASKMOD_COOKIE,
-        # organization_name parameter removed
         task_id=SOURCE_TASK_ID,
         database_index=SOURCE_DATABASE_INDEX,
         user_id=USER_ID
@@ -63,6 +63,18 @@ def create_orchestrator() -> IntelligentOrchestrator:
     decomposer = QueryDecomposer(llm=llm)
     evaluator = EnhancedResponseEvaluator(llm=llm)
     synthesizer = ResponseSynthesizer(llm=llm)
+    
+    # Try to import and create AppMod RAG tool
+    appmod_rag_tool = None
+    # try:
+    #     # appmod_rag_tool = AppModRagTool()
+    #     logger.info("Successfully initialized AppMod RAG tool")
+    # except ImportError as e:
+    #     logger.warning(f"AppMod RAG tool not available: {str(e)}")
+    #     logger.info("Will proceed without RAG tool - empty context will be used")
+    # except Exception as e:
+    #     logger.error(f"Error initializing AppMod RAG tool: {str(e)}")
+    #     logger.info("Will proceed without RAG tool - empty context will be used")
     
     # Set up source and target configurations
     source_config = {
@@ -83,12 +95,13 @@ def create_orchestrator() -> IntelligentOrchestrator:
         "description": "Userstory Dashboard"
     }
     
-    # Create and return the orchestrator
+    # Create and return the orchestrator with AppMod RAG tool
     return IntelligentOrchestrator(
         askmod_client=askmod_client,
         decomposer=decomposer,
         evaluator=evaluator,
         synthesizer=synthesizer,
+        appmod_rag_tool=appmod_rag_tool,  # Pass the RAG tool (can be None)
         llm=llm,
         code_extractor=CodeExtractor(),
         source_repo_config=source_config,

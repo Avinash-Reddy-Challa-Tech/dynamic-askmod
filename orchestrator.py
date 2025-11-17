@@ -293,44 +293,90 @@ Format your response as JSON:
             "is_target_repo": is_target
         }
 
-    async def _get_rag_context(self, user_query: str, repo_config: RepoConfig, is_target: bool = False) -> str:
+    async def _get_rag_context(self, user_query: str, is_target_repo: bool = False) -> Dict[str, Any]:
         """
-        Get initial RAG context for a repository.
+        Get initial RAG context for the user query using the RAG tool.
+        Does NOT make an AskMod call, returns empty context if RAG tool is not available.
         
         Args:
             user_query: The original user query
-            repo_config: Repository configuration
-            is_target: Whether this is for the target repository
+            is_target_repo: Whether to use the target repository
             
         Returns:
-            String containing RAG context information
+            Dictionary containing RAG context information with empty values if no RAG tool available
         """
-        logger.info(f"Getting RAG context for {'target' if is_target else 'source'} repository: {repo_config.repo_url}")
+        # Determine repository configuration
+        if is_target_repo:
+            repo_config = {
+                "repo_url": self.target_repo.repo_url,
+                "taskId": self.target_repo.task_id,
+                "organization_name": self.target_repo.organization_name
+            }
+        else:
+            repo_config = {
+                "repo_url": self.source_repo.repo_url,
+                "taskId": self.source_repo.task_id,
+                "organization_name": self.source_repo.organization_name
+            }
         
-        # Create a RAG-focused query
-        repo_type = "target" if is_target else "source"
-        rag_query = f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: Provide an overview of the code structure and main components in this repository that would be relevant to: {user_query}"
+        logger.info(f"Getting RAG context for {'target' if is_target_repo else 'source'} repository")
         
-        try:
-            # Create a simple RAG query
-            rag_query = f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: {user_query}"
-            
-            # FIXED: Use is_target parameter instead of manual attribute setting
-            context = await self.askmod_client.send_query(rag_query, is_target=is_target)
-            
-            if context:
-                logger.info(f"Successfully retrieved RAG context for {repo_type} repository")
-                # Save the context to a file
-                with open(f"rag_context/{repo_type}_context.txt", "w", encoding="utf-8") as f:
-                    f.write(context)
-                return context
-            else:
-                logger.warning(f"Empty RAG context returned for {repo_type} repository")
-                return f"No context available for {repo_type} repository"
+        # Use the AppModRagTool if available
+        if self.appmod_rag_tool:
+            try:
+                # Format the query as a question dictionary
+                question_dict = [{"question": user_query}]
                 
-        except Exception as e:
-            logger.error(f"Error getting RAG context for {repo_type} repository: {str(e)}")
-            return f"Error: {str(e)}"
+                # Call the AppModRagTool
+                rag_responses, header_content, assistant_documents = self.appmod_rag_tool.run(
+                    image_to_questions=question_dict,
+                    user_id=self.askmod_client.current_user_id,  # Use current_user_id instead of user_id
+                    git_url=repo_config.get("repo_url", ""),
+                    task_id=repo_config.get("taskId", ""),  # Use taskId instead of task_id
+                    feature_name="",
+                    git_token=self.askmod_client.github_token,
+                    send_updates=False
+                )
+                
+                # Extract the reference content from the response
+                if rag_responses and isinstance(rag_responses, list) and len(rag_responses) > 0:
+                    reference = rag_responses[0].get("reference", "")
+                    
+                    # Save RAG context to a file for reference
+                    os.makedirs("rag_context", exist_ok=True)
+                    context_file = f"rag_context/{'target' if is_target_repo else 'source'}_context.txt"
+                    with open(context_file, "w", encoding="utf-8") as f:
+                        f.write(str(reference))
+                    
+                    logger.info(f"Successfully retrieved RAG context for {'target' if is_target_repo else 'source'} repository")
+                    return {
+                        "context": reference,
+                        "header_content": header_content,
+                        "assistant_documents": assistant_documents
+                    }
+                else:
+                    logger.warning("No valid RAG responses received")
+                    return {
+                        "context": "",
+                        "header_content": {},
+                        "assistant_documents": []
+                    }
+                    
+            except Exception as e:
+                logger.error(f"Error getting RAG context: {str(e)}", exc_info=True)
+                return {
+                    "context": "",
+                    "header_content": {},
+                    "assistant_documents": []
+                }
+        else:
+            # No AppModRagTool available, return empty context
+            logger.info("No RAG tool available, returning empty context")
+            return {
+                "context": "",
+                "header_content": {},
+                "assistant_documents": []
+            }
 
     async def _generate_paired_questions(self, 
                                         user_query: str, 
@@ -375,6 +421,7 @@ Format your response as JSON:
                     json_str = json_match.group(1)
                 else:
                     logger.error("Could not extract JSON from LLM response")
+                    return self._fallback_paired_questions(user_query, num_pairs)
             
             # Parse the JSON
             data = json.loads(json_str)
@@ -393,6 +440,46 @@ Format your response as JSON:
             
         except Exception as e:
             logger.error(f"Error generating paired questions: {str(e)}")
+            return self._fallback_paired_questions(user_query, num_pairs)
+    
+    def _fallback_paired_questions(self, user_query: str, num_pairs: int = 3) -> List[SubQuestionPair]:
+        """
+        Provide fallback paired questions if generation fails.
+        
+        Args:
+            user_query: The original user query
+            num_pairs: Number of question pairs to generate
+            
+        Returns:
+            List of fallback paired questions
+        """
+        logger.info(f"Using fallback paired questions generation")
+        
+        # Extract key feature from the query (simple heuristic)
+        feature_match = re.search(r'feature\s+(?:in|of)\s+([^.]+)', user_query, re.IGNORECASE)
+        feature = feature_match.group(1) if feature_match else "the requested functionality"
+        
+        # Create basic fallback question pairs
+        fallback_pairs = [
+            SubQuestionPair(
+                source_question=f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: How is {feature} implemented in the code?",
+                target_question=f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: What existing components in the codebase could help implement {feature}?",
+                context=f"Understanding the basic implementation of {feature}"
+            ),
+            SubQuestionPair(
+                source_question=f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: What API routes or endpoints handle {feature}?",
+                target_question=f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: What is the API structure for implementing new routes or endpoints?",
+                context=f"Understanding the API structure for {feature}"
+            ),
+            SubQuestionPair(
+                source_question=f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: What database models or schemas are used for {feature}?",
+                target_question=f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: What database models or schemas exist in the target repository?",
+                context=f"Understanding the data model for {feature}"
+            )
+        ]
+        
+        return fallback_pairs[:num_pairs]
+
     async def _process_paired_questions(self, 
                                        user_query: str,
                                        source_context: str,
@@ -813,13 +900,16 @@ Format your response as JSON:
         if database_index:
             self.source_repo.database_index = database_index
             
-        # Get initial RAG context for both repositories
-        # source_context_task = self._get_rag_context(user_query, self.source_repo, False)
-        # target_context_task = self._get_rag_context(user_query, self.target_repo, True)
+        # Get initial RAG context for both repositories using the AppMod RAG tool
+        logger.info("Getting RAG context for both repositories")
         
-        # Wait for both tasks to complete
-        # source_context, target_context = await asyncio.gather(source_context_task, target_context_task)
-        source_context, target_context= [],[]
+        # Get RAG context for both repositories
+        source_rag_data = await self._get_rag_context(user_query, is_target_repo=False)
+        target_rag_data = await self._get_rag_context(user_query, is_target_repo=True)
+        
+        # Extract context strings for backward compatibility
+        source_context = source_rag_data.get("context", "")
+        target_context = target_rag_data.get("context", "")
         
         # Initialize variables to track orchestration state
         all_qa_pairs = []
