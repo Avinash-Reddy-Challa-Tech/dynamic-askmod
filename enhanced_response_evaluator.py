@@ -466,7 +466,7 @@ class EnhancedResponseEvaluator:
             logger.info(f"Identified {len(evaluation_result['issues'])} issues: {evaluation_result['issues']}")
             
         if evaluation_result["follow_up_questions"]:
-            logger.info(f"Generated {len(evaluation_result['follow_up_questions'])} follow-up questions")
+            logger.info(f"Generated {len(evaluation_result['follow_up_questions'])} clarification questions")
             
         return evaluation_result
     
@@ -504,7 +504,7 @@ class EnhancedResponseEvaluator:
         
         # First check if we have LLM-generated follow-up questions
         if evaluation_result.get("follow_up_questions") and len(evaluation_result["follow_up_questions"]) > 0:
-            logger.info(f"Using {len(evaluation_result['follow_up_questions'])} pre-generated follow-up questions")
+            logger.info(f"Using {len(evaluation_result['follow_up_questions'])} pre-generated clarificatiopn questions")
             return evaluation_result["follow_up_questions"][:2]  # Return top 2 questions
         
         # Otherwise, generate questions based on issues

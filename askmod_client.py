@@ -7,7 +7,7 @@ Key fixes:
 2. Uses correct user IDs and configurations  
 3. Proper timeout handling
 4. Simplified query processing
-5. Better error handling
+5. Better error handling and fallbacks
 """
 
 import json
@@ -172,7 +172,7 @@ class AskModClient:
             is_target: Whether this query is for the target repository
             
         Returns:
-            The answer from AskMod response
+            The answer from AskMod or a fallback response
         """
         repo_type = "target" if is_target else "source"
         config = self.target_repo_config if is_target else self.source_repo_config
@@ -217,7 +217,6 @@ class AskModClient:
                                 if "Answer" in data["result"]:
                                     answer = data["result"]["Answer"]
                                     if answer and isinstance(answer, str) and len(answer.strip()) > 0:
-                                        # Check if it's a domain rejection
                                         logger.info(f"Successfully received answer from {repo_type} repository (length: {len(answer)})")
                                         return answer
                                     else:
@@ -229,7 +228,6 @@ class AskModClient:
                                 
                         except json.JSONDecodeError as e:
                             logger.error(f"JSON parsing error: {str(e)}")
-                            
                         except Exception as e:
                             logger.error(f"Error processing response: {str(e)}")
                     else:

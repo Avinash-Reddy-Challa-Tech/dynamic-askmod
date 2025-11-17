@@ -312,28 +312,11 @@ Format your response as JSON:
         rag_query = f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: Provide an overview of the code structure and main components in this repository that would be relevant to: {user_query}"
         
         try:
-            # Set repository-specific parameters for the client
-            client_params = self._build_askmod_payload(repo_config, is_target)
+            # Create a simple RAG query
+            rag_query = f"User Query: TRIGGER DOMAIN KNOWLEDGE AGENT: {user_query}"
             
-            # Temporarily update the client's parameters
-            original_params = {
-                "organization_name": self.askmod_client.organization_name,
-                "task_id": self.askmod_client.task_id,
-                "database_index": self.askmod_client.database_index
-            }
-            
-            # Update client parameters
-            self.askmod_client.organization_name = client_params["organization_name"]
-            self.askmod_client.task_id = client_params["task_id"]
-            self.askmod_client.database_index = client_params["database_index"]
-            
-            # Make the call
-            context = await self.askmod_client.send_query(rag_query)
-            
-            # Restore original parameters
-            self.askmod_client.organization_name = original_params["organization_name"]
-            self.askmod_client.task_id = original_params["task_id"]
-            self.askmod_client.database_index = original_params["database_index"]
+            # FIXED: Use is_target parameter instead of manual attribute setting
+            context = await self.askmod_client.send_query(rag_query, is_target=is_target)
             
             if context:
                 logger.info(f"Successfully retrieved RAG context for {repo_type} repository")
@@ -410,8 +393,6 @@ Format your response as JSON:
             
         except Exception as e:
             logger.error(f"Error generating paired questions: {str(e)}")
-    
-
     async def _process_paired_questions(self, 
                                        user_query: str,
                                        source_context: str,
@@ -440,15 +421,10 @@ Format your response as JSON:
             source_question = pair.source_question
             source_enhanced = f"{source_question}\n\nContext Information:\n{source_context}"
             
-            # Set source repository parameters for the client
-            source_params = self._build_askmod_payload(self.source_repo, False)
-            self.askmod_client.organization_name = source_params["organization_name"]
-            self.askmod_client.task_id = source_params["task_id"]
-            self.askmod_client.database_index = source_params["database_index"]
-            
-            # Get source response
-            source_response = await self.askmod_client.send_query(source_enhanced)
+            # FIXED: Use is_target=False for source repository
+            source_response = await self.askmod_client.send_query(source_enhanced, is_target=False)
             print(f"Source Response: {source_response}")
+            
             # Evaluate source response
             source_eval = await self.evaluator.evaluate_response(
                 response_text=source_response,
@@ -474,14 +450,8 @@ Format your response as JSON:
             target_question = pair.target_question
             target_enhanced = f"{target_question}\n\nSource Repository Information:\n{source_response}\n\nContext Information:\n{target_context}"
             
-            # Set target repository parameters for the client
-            target_params = self._build_askmod_payload(self.target_repo, True)
-            self.askmod_client.organization_name = target_params["organization_name"]
-            self.askmod_client.task_id = target_params["task_id"]
-            self.askmod_client.database_index = target_params["database_index"]
-            
-            # Get target response
-            target_response = await self.askmod_client.send_query(target_enhanced)
+            # FIXED: Use is_target=True for target repository
+            target_response = await self.askmod_client.send_query(target_enhanced, is_target=True)
             print(f"Target Response: {target_response}")
             
             # Evaluate target response
@@ -629,8 +599,55 @@ Format your response as JSON:
             with open("decisions/decision.json", "w", encoding="utf-8") as f:
                 f.write(response_text)
             
-            # Parse the decision
-            decision = self.decision_parser.parse(response_text)
+            # Parse the decision with improved error handling
+            try:
+                # First try to parse as JSON manually to handle extra fields
+                import json
+                import re
+                
+                # Extract JSON from the response
+                json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(1)
+                else:
+                    # Try to find JSON without markdown wrapper
+                    json_match = re.search(r'({[\s\S]*})', response_text)
+                    if json_match:
+                        json_str = json_match.group(1)
+                    else:
+                        raise ValueError("No JSON found in response")
+                
+                # Parse the JSON
+                decision_data = json.loads(json_str)
+                
+                # Handle follow_up_questions field properly
+                follow_up_questions = decision_data.get("follow_up_questions", [])
+                if isinstance(follow_up_questions, list) and len(follow_up_questions) > 0:
+                    # Check if it's the complex format (list of objects with 'query' field)
+                    if isinstance(follow_up_questions[0], dict) and 'query' in follow_up_questions[0]:
+                        # Extract just the query text from each object
+                        follow_up_questions = [q.get("query", str(q)) for q in follow_up_questions]
+                
+                # Create OrchestratorDecision with all the fields
+                decision = OrchestratorDecision(
+                    decision=decision_data.get("decision", "synthesize"),
+                    citations_to_fetch=decision_data.get("citations_to_fetch", []),
+                    reason=decision_data.get("reason", "No reason provided"),
+                    confidence=decision_data.get("confidence", 0.5),
+                    generate_questions_from_rag=decision_data.get("generate_questions_from_rag", False),
+                    follow_up_questions=follow_up_questions,
+                    is_complete=decision_data.get("is_complete", False),
+                    target_repo=decision_data.get("target_repo", False)
+                )
+                
+                logger.info(f"Orchestration decision: {decision.decision} (confidence: {decision.confidence:.2f})")
+                
+                return decision
+                
+            except Exception as parse_error:
+                logger.error(f"JSON parsing failed: {str(parse_error)}")
+                # Try the original parser as fallback
+                decision = self.decision_parser.parse(response_text)
             logger.info(f"Orchestration decision: {decision.decision} (confidence: {decision.confidence:.2f})")
             
             return decision
@@ -719,24 +736,18 @@ Format your response as JSON:
         
         follow_up_qa_pairs = []
         
-        # Set appropriate repository parameters for the client
+        # FIXED: Set appropriate context for the repository
         if is_target:
-            repo_params = self._build_askmod_payload(self.target_repo, True)
             context = target_context
         else:
-            repo_params = self._build_askmod_payload(self.source_repo, False)
             context = source_context
             
-        self.askmod_client.organization_name = repo_params["organization_name"]
-        self.askmod_client.task_id = repo_params["task_id"]
-        self.askmod_client.database_index = repo_params["database_index"]
-        
         for question in follow_up_questions:
             # Enhance question with context
             enhanced_question = f"{question}\n\nContext Information:\n{context}"
             
-            # Get response
-            response = await self.askmod_client.send_query(enhanced_question)
+            # FIXED: Get response using is_target parameter
+            response = await self.askmod_client.send_query(enhanced_question, is_target=is_target)
             
             # Evaluate response
             evaluation = await self.evaluator.evaluate_response(
