@@ -1,5 +1,7 @@
 creds.json
 key.json
+payload.json
+.vscode/
 .env
 __pycache__/
 responses/
@@ -8,3 +10,4 @@ decisions/
 rag_context/
 .appmodconfig
 implementation_guide.md
+payload.txt

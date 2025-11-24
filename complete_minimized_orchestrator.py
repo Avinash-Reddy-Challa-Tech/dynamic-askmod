@@ -66,58 +66,59 @@ class AskModClient:
         self.user_id_payload = "0804b20a-2414-40c8-afd1-1bf0703e9d6e"
         self.current_user_id = "68e648e8658ff0e1799590c4"
         self.github_token = ""
-        self.cw_core_assistant_name = "cwlscassistant"
-        self.agent_name = "CreativeLSCToModeConnectorAgent"
-        self.agent_id = "68ba66bb4d31614de6d7d7ec"
-        self.rag_agent_url = "https://ellm.creativeworkspace.ai/utility/creative-lsc-to-mode-connector-agent"
 
-        self.websocket_url = "wss://ellm.creativeworkspace.ai/graphql"
+        ### DEV ###
+        self.concierge_id = "ea849533-fbb8-4645-81f8-445fb85ea68c"
+        self.cw_core_assistant_name = "devlscassistant"
+        self.agent_name = "CreativeLSCToModeConnectorAgentV1"
+        self.agent_id = "68b54504abdb190b9eb73dc5"
+        self.rag_agent_url = "https://dev-proposals-ai.techo.camp/utility/creative-lsc-to-mode-connector-agent"
+
+        self.websocket_url = "wss://dev-proposals-ai.techo.camp/graphql"
         self.organization_name = "techolution"
         self.chat_assistant_name = "appmodoncw"
+
+        # ### prod ###
+        # self.concierge_id = "c19f796d-8fa4-4846-9a2f-af0065bb350f"
+        # self.cw_core_assistant_name = "cwlscassistant"
+        # self.agent_name = "CreativeLSCToModeConnectorAgent"
+        # self.agent_id = "68ba66bb4d31614de6d7d7ec"
+        # self.rag_agent_url = "https: //ellm.creativeworkspace.ai/utility/creative-lsc-to-mode-connector-agent"
+
+        # self.websocket_url = "wss://dev-proposals-ai.techo.camp/graphql"
+        # self.organization_name = "techolution"
+        # self.chat_assistant_name = "appmodoncw"
 
         
 
 
         # Same repo configs
         self.source_config = {
-            "taskId": "29b8c0bd-68b9-412b-af42-4bc56afe7f4f",
-            "databaseIndex": "appmodbf30e6faprod",
-            "project_name": "User Story Project",
-            "updated_at": "2025-11-18 15:44:16",
+            "taskId": "a8d5f6ec-2cb9-4f5c-951c-a184d2b33471",
+            "databaseIndex": "appmodb2a99c5adev",
+            "project_name": "Appmod-Agents",
+            "updated_at": "2025-09-08 09:56:31",
             "status": "Completed",
-            "repo_url": "https://github.com/hrushik-reddy/extract-text-from-x",
+            "repo_url": "https://github.com/Techolution/Appmod-Agents",
             "embedding_model": {"model_name": "text-embedding-ada-002", "model_type": "Azure OpenAI"},
             "organization_name": "84lumber",
-            "assistantName": "appmodbf30e6faprod",
-            "project_id": "0cc04d8a-0ab1-4c85-973a-ead0b3d5017d",
-            "user_id": "683d5d66bb7113c6586abfdf"
+            "assistantName": "appmodb2a99c5adev",
+            "project_id": "0cb7baff-8cff-4ef3-965d-7d797401c6af",
+            "user_id": "667bdcbc6bd304c195e1b33e"
         }
         
-        # self.target_config = {
-        #     "taskId": "0dbaa6f7-b9be-48b0-bba2-e7f303673516",
-        #     "databaseIndex": "appmod820ed535prod",
-        #     "project_name": "EGPT_AI",
-        #     "updated_at": "2025-11-14 11:55:18",
-        #     "status": "syncing",
-        #     "repo_url": "https://github.com/Techolution/EGPT_AI",
-        #     "embedding_model": {"model_name": "text-embedding-ada-002", "model_type": "Azure OpenAI"},
-        #     "organization_name": "techolution",
-        #     "assistantName": "appmod820ed535prod",
-        #     "project_id": "81083217-e51e-4a54-bfb8-4b262c5a0de0",
-        #     "user_id": "0804b20a-2414-40c8-afd1-1bf0703e9d6e"
-        # }
 
         self.target_config = {
-            "taskId": "eb800b0e-c621-449d-894b-d10e90ce3cb2",
-            "databaseIndex": "appmoda62f2754prod",
-            "project_name": "mcp websearch",
-            "updated_at": "2025-11-18 14:09:01",
+            "taskId": "fb99f5eb-4dbe-4d9c-b69e-499b574fd683",
+            "databaseIndex": "appmodffdd03d5dev",
+            "project_name": "citation library",
+            "updated_at": "2025-05-23 21:14:22",
             "status": "Completed",
-            "repo_url": "https://github.com/mrkrsl/web-search-mcp.git",
+            "repo_url": "https://github.com/Techolution/e-llm-studio-lib",
             "embedding_model": {"model_name": "text-embedding-ada-002", "model_type": "Azure OpenAI"},
-            "organization_name": "techolution",
-            "assistantName": "appmoda62f2754prod",
-            "project_id": "b35a28fc-ac13-4e93-aa2e-b85c2eda1ee8",
+            "organization_name": "84lumber",
+            "assistantName": "appmodoncw",
+            "project_id": "486c457f-792e-4353-858e-110efc0c7503",
             "user_id": "667bdcbc6bd304c195e1b33e"
         }
     
@@ -138,7 +139,7 @@ class AskModClient:
 
 
         payload = {
-                    "concierge_id": "c19f796d-8fa4-4846-9a2f-af0065bb350f",
+                    "concierge_id": self.concierge_id,
                     "concierge_name": self.cw_core_assistant_name,
                     "request_id": request_id,
                     "agent_name": self.agent_name,
@@ -234,8 +235,11 @@ class AskModClient:
                 }
 
 
-        with open("payload.txt", "w") as f:
-            f.write(str(payload))
+        # with open("payload.txt", "w") as f:
+        #     f.write(str(payload))
+
+        with open("payload.json", "w") as f:
+            json.dump(payload, f, indent=2)
 
         # timeout = aiohttp.ClientTimeout(total=120)
         timeout = aiohttp.ClientTimeout(total=120, connect=30, sock_read=300)
@@ -821,8 +825,8 @@ Respond with ONLY a JSON object:
 async def process_query(query: str) -> dict:
     """Main entry point"""
     
-    # ASKMOD_ENDPOINT = os.getenv('ASKMOD_ENDPOINT', 'https://dev-proposals-ai.techo.camp/api/chat/chatResponse')
-    ASKMOD_ENDPOINT = "https://ellm.creativeworkspace.ai/utility/creative-lsc-to-mode-connector-agent/prediction"
+    ASKMOD_ENDPOINT = os.getenv('ASKMOD_ENDPOINT', 'https://dev-proposals-ai.techo.camp/utility/creative-lsc-to-mode-connector-agent/prediction')
+    # ASKMOD_ENDPOINT = "https://ellm.creativeworkspace.ai/utility/creative-lsc-to-mode-connector-agent/prediction"
     ASKMOD_COOKIE = os.getenv('ASKMOD_COOKIE', 'Enterprise-GPT-Maker-techolution-appmodoncw=techolution-appmodoncw-aa48c862-9eea-4969-8874-42259302b340')
 
     logger.info(f"Using AskMod endpoint: {ASKMOD_ENDPOINT}, cookie length: {len(ASKMOD_COOKIE)}")
