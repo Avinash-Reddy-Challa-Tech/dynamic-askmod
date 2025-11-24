@@ -420,6 +420,39 @@ Respond with JSON:
 
 
 # ============================================================================
+# QA LOGGER - Logs question-answer pairs to JSON
+# ============================================================================
+
+class QALogger:
+    """Logs QA pairs to JSON file"""
+    
+    def __init__(self, log_file: str = "qa_logs.json"):
+        self.log_file = log_file
+    
+    def log_qa_run(self, user_query: str, qa_pairs: List[Dict[str, Any]]):
+        """Append QA run to log file"""
+        import json
+        import os
+        
+        # Load existing data or create new
+        if os.path.exists(self.log_file):
+            with open(self.log_file, 'r') as f:
+                data = json.load(f)
+        else:
+            data = {"runs": []}
+        
+        # Append new run
+        data["runs"].append({
+            "user_query": user_query,
+            "qa_pairs": qa_pairs
+        })
+        
+        # Write back to file
+        with open(self.log_file, 'w') as f:
+            json.dump(data, f, indent=2)
+
+
+# ============================================================================
 # CODE EXTRACTOR - Same logic as original
 # ============================================================================
 
@@ -560,6 +593,7 @@ class Orchestrator:
         self.evaluator = ResponseEvaluator()
         self.synthesizer = ResponseSynthesizer()
         self.code_extractor = CodeExtractor()
+        self.qa_logger = QALogger()
         self.max_iterations = max_iterations
         
         os.makedirs("responses", exist_ok=True)
@@ -803,6 +837,16 @@ Respond with ONLY a JSON object:
         # Save result
         with open("responses/final_answer.txt", "w") as f:
             f.write(final_answer)
+        
+        # Log QA pairs
+        qa_log_pairs = [{
+            "question": qa["question"],
+            "answer": qa["answer"],
+            "repository": qa.get("repository", "unknown"),
+            "follow_up_questions": qa.get("evaluation", {}).get("follow_up_questions", [])
+        } for qa in all_qa_pairs]
+        
+        self.qa_logger.log_qa_run(user_query, qa_log_pairs)
         
         logger.info("Process complete!")
         
